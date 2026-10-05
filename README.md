@@ -68,6 +68,7 @@ motorizadas:
 El lápiz está unido por una articulación **fija** cuyo marco queda
 **exactamente en la punta**. Así `getLinkState(...)[4]` devuelve el punto de
 contacto y no hace falta corregir ningún offset.
+<img width="557" height="580" alt="image" src="https://github.com/user-attachments/assets/25eb699f-3f16-4ccd-8ecb-110c383eaf9d" />
 
 ### El panel está en el plano YZ, y tiene que estar
 
