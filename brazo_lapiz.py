@@ -1,57 +1,6 @@
 """
 BRAZO CON LAPIZ QUE DIBUJA DIGITOS
 =====================================
-Unico archivo, sin dependencias externas. Copialo en Visual Studio y dale a
-Run. No hace falta ESP32 ni ningun hardware: se teclea en la ventana de
-PyBullet.
-
-El URDF va embebido abajo. Al arrancar el script lo escribe solo en la carpeta
-temporal y lo carga desde ahi, asi que no tienes que crear ningun otro archivo.
-
-    python brazo_lapiz.py               -> ventana interactiva
-    python brazo_lapiz.py --verificar   -> comprueba los 10 digitos y sale
-
---------------------------------------------------------------------------------
-CONTROLES
---------------------------------------------------------------------------------
-    Ventana de PyBullet enfocada + teclas 0-9  -> dibuja el digito
-    ESPACIO                                   -> borra el dibujo
-    R                                         -> vuelve a la postura inicial
-    ESC o Q                                   -> salir
-
---------------------------------------------------------------------------------
-POR QUE ESTA HECHO ASI (medido ejecutando PyBullet, no de memoria)
---------------------------------------------------------------------------------
-1. getLinkState() devuelve 6 elementos en PyBullet 3.2.7, no 14:
-       [0] linkWorldPosition        -> CENTRO DE MASA del link
-       [4] worldLinkFramePosition   -> ORIGEN DEL MARCO DEL LINK  <-- el bueno
-   Con <inertial> en el URDF, [0] y [4] dejan de coincidir.
-
-2. getNumJoints() cuenta las articulaciones FIJAS, pero calculateJacobian() y
-   calculateInverseKinematics() usan una lista por articulacion MOTORIZADA.
-   Aqui hay 8 joints y uno es fijo (joint_lapiz), o sea 7 grados de libertad.
-   calculateJacobian pide ademas que los tres argumentos midan LO MISMO:
-   [q]*7, [0]*7, [0]*7. Con 8 falla con "numDof needs to be positive".
-
-3. La IK de PyBullet es local y ademas no aplica los limites del URDF. Sembrada
-   desde una configuracion con la punta sobre el eje del brazo, joint_1 (azimut)
-   no tiene autoridad: su columna del Jacobiano es [0,0,0] y devuelve TODO
-   CEROS. Por eso hay buscar_postura(), que siembra el azimut con atan2 y barre
-   inclinacion x avance antes de refinar.
-
-4. En PyBullet 3.2.7 estos kwargs de calculateInverseKinematics estan ROTOS:
-       numIterations      -> TypeError (no existe)
-       rangeOfMotion      -> TypeError (no existe)
-       maxNumIterations   -> cuelga el proceso
-       jointDamping       -> SystemError
-   Por eso la IK aqui es DLS propio, sin esos kwargs.
-
-5. El URDF original (una pinza) no podia escribir en una mesa, por geometria: el
-   poste de 0.35 m no se inclinaba y el lapiz de 0.30 m cancelaba el boom de
-   0.30 m, dejando la punta dentro de una esfera de 15 cm clavada a z=0.65 m.
-   Aqui se anade joint_hombro para que el brazo superior si se incline, y
-   joint_muneca para mantener el lapiz vertical.
-"""
 
 import os
 import sys
@@ -325,16 +274,7 @@ URDF = """<?xml version="1.0"?>
 # =============================================================================
 VERIFICAR = "--verificar" in sys.argv
 
-# --- El panel VERTICAL ------------------------------------------------------
-# El panel esta en el plano YZ (normal en +-X), NO en el plano XZ. Motivo: los
-# tres joints de inclinacion (hombro, codo, muneca) giran todos sobre el eje Y,
-# asi que la direccion del lapiz SIEMPRE esta contenida en el plano XZ. Lo
-# medido con el Jacobiano: la componente Y del lapiz da 0.000 con cualquier
-# postura. Un panel con la normal en +-Y seria invisible para el lapiz.
-#
-# El lapiz es ademas COLINEAL con el brazo, asi que la punta esta siempre a
-# distancia (0.32 + 0.28 + 0.05 - 0.12 + avance) del hombro, o sea entre
-# 0.53 y 0.79 m. Por eso el panel esta a 0.55 m y no mas lejos.
+
 X_PANEL = 0.55          # m, plano del panel
 Z_PANEL = 0.60          # m, altura del centro del digito
 ALTURA_LAPIZ = 0.05     # m, cuanto se separa el lapiz del panel entre trazos
@@ -347,20 +287,17 @@ DT = 1.0 / 240.0        # paso de simulacion
 TIEMPO_POR_MOV = 0.16   # s de SIMULACION por waypoint
 
 # --- Camara -----------------------------------------------------------------
-# Medido leyendo la camara de vuelta con getDebugVisualizerCamera: la
-# direccion de vision es  (-sin(yaw), cos(yaw)*cos(pitch), sin(pitch)).
-# Con yaw=90 y pitch=0 la camara mira exactamente hacia -X, que es lo que
-# hace falta para ver de frente un panel en el plano YZ.
+
 CAM_YAW = 90.0
 CAM_PITCH = -8.0
 CAM_DIST = 0.90
 CAM_OBJETIVO = [X_PANEL, 0.0, Z_PANEL]
 
-# --- ESP32 -------------------------------------------------------------------
-PUERTO_SERIAL = None       # None = buscar solo; o "COM3" para forzar
-BAUD_SERIAL = 115200       # tiene que coincidir con Serial.begin() del sketch
 
-# Digitos como segmentos de 7. u = derecha, v = arriba, ambos en [-1, 1]
+PUERTO_SERIAL = COM3       
+BAUD_SERIAL = 115200       
+
+
 SEG = {
     "a": [(-1, +1), (+1, +1)],      # superior
     "b": [(+1, +1), (+1, 0)],       # superior derecho
@@ -374,7 +311,7 @@ DIGITOS = {
     "0": "abcdef", "1": "bc",     "2": "abged", "3": "abgcd", "4": "fgbc",
     "5": "afgcd", "6": "afgedc", "7": "abc",   "8": "abcdefg", "9": "fagbcd",
 }
-# Orden de segmentos elegido para minimizar los viajes con el lapiz arriba.
+
 TRAYECTORIAS = {d: [SEG[s] for s in segs] for d, segs in DIGITOS.items()}
 
 # =============================================================================
@@ -485,21 +422,7 @@ class sin_render:
 
 def dls(objetivo, q, iters=60, lam=0.01, lam_postura=0.08, tol=1e-4,
         refinando=True):
-    """Minimos cuadrados amortiguados con sesgo de postura.
-
-    El sesgo lleva el CODO y la MUNECA a cero. Como el lapiz es colineal con el
-    antebrazo, eso hace que el lapiz apunte justo hacia el objetivo, que es la
-    postura natural de un brazo escribiendo: el lapiz marca la direccion
-    hombro->punta.
-
-    (En el papel horizontal hacia falta otra cosa: ahi el lapiz tiene que
-    quedar VERTICAL, y se lograba con muneca = -(hombro + codo).)
-
-    Con refinando=False tambien se apaga el render, para que los teletransportes
-    intermedios del DLS no se vean. Eso solo se usa dentro de buscar_postura;
-    en el dibujo normal refinando=True y el movimiento se ve, que es lo que
-    queremos.
-    """
+   
     objetivo = np.array(objetivo, float)
     ceros = [0.0] * NDOF
     q = np.array(q, float)
@@ -524,14 +447,7 @@ def dls(objetivo, q, iters=60, lam=0.01, lam_postura=0.08, tol=1e-4,
 
 
 def buscar_postura(objetivo, n=31):
-    """Postura inicial por rejilla y luego refinado DLS.
-
-    Imprescindible: la IK sembrada desde el origen se va a una rama mala
-    porque con la punta sobre el eje, joint_1 no puede moverla.
-
-    El render se desactiva durante la rejilla: son n^2 teletransportes
-    seguidos y, con el render puesto, se ve al brazo dar vueltas frenetico.
-    """
+  
     import itertools
 
     objetivo = np.array(objetivo, float)
@@ -561,7 +477,7 @@ Q_ACTUAL = np.zeros(NDOF)
 
 
 def mantener(q, objetivo=None):
-    """Comanda la postura y avanza un tiempo de SIMULACION fijo."""
+   
     pasos = max(1, int(TIEMPO_POR_MOV / DT))
     for _ in range(pasos):
         for k in REVOLUTAS:
@@ -583,7 +499,7 @@ def mover_a(objetivo):
 
 
 def dibujar_papel():
-    """Marco del panel vertical (plano YZ) y eje vertical de referencia."""
+  
     y0, y1 = -DIG_ANCHO / 2, DIG_ANCHO / 2
     z0, z1 = -DIG_ALTO / 2, DIG_ALTO / 2
     for x in (X_PANEL, X_PANEL + ALTURA_LAPIZ):
@@ -591,19 +507,14 @@ def dibujar_papel():
         for a, b in zip(esquinas, esquinas[1:] + esquinas[:1]):
             p.addUserDebugLine(a, b, lineColorRGB=[0.55, 0.55, 0.55],
                                lineWidth=1, lifeTime=0)
-    # eje vertical del digito, para que se note el 'arriba'
+    
     p.addUserDebugLine((X_PANEL, 0, z0 - 0.04), (X_PANEL, 0, z1 + 0.04),
                        lineColorRGB=[0.75, 0.75, 0.75], lineWidth=1,
                        lifeTime=0)
 
 
 def puntos_segmento(uv_a, uv_b, paso=0.02):
-    """Interpola un segmento en pasos de ~'paso' metros.
-
-    Sin esto los segmentos largos (el superior del 8 mide DIG_ANCHO entero) se
-    recorren de un tiron: el hombro gira mas de 20 grados entre dos puntos y el
-    trazo sale nervioso. Con 2 cm por paso el movimiento es fluido.
-    """
+   
     a, b = np.array(uv_a, float), np.array(uv_b, float)
     largo = np.linalg.norm((b - a) * np.array([DIG_ANCHO, DIG_ALTO]) / 2.0)
     n = max(2, int(np.ceil(largo / paso)) + 1)
@@ -611,7 +522,7 @@ def puntos_segmento(uv_a, uv_b, paso=0.02):
 
 
 def dibujar(numero):
-    """Dibuja un digito. Devuelve el error maximo de la punta, en mm."""
+    
     global Q_ACTUAL
     trazos = TRAYECTORIAS.get(numero)
     if not trazos:
@@ -664,16 +575,7 @@ def conectar_serial(puerto=None, baud=BAUD_SERIAL):
 
 
 class LectorTeclado:
-    """Lee digitos del puerto serial de la ESP32.
-
-    Aislado en una clase para poder probarlo con un puerto falso, sin hardware.
-    Robustez importante, porque el serial entrega bytes a trozos:
-
-      - la ESP32 manda '5\\r\\n' con Serial.println, pero un read() puede
-        cortarlo entre '\\r' y '\\n', o varios caracteres de un golpe
-      - se acumulan los bytes y se extraen por lineas completas
-      - se ignoran A B C # * y cualquier byte que no sea un digito
-    """
+    
 
     def __init__(self, stream):
         self.stream = stream
@@ -776,13 +678,7 @@ def verificar():
 # 7. BUCLE PRINCIPAL
 # =============================================================================
 def colocar_camara():
-    """Encuadra el panel de frente.
-
-    La direccion de vision de PyBullet es (-sin(yaw), cos(yaw)*cos(pitch),
-    sin(pitch)), medido con getDebugVisualizerCamera. Con yaw=90 y pitch=0
-    mira exactamente hacia -X, que es el normal del panel. El usuario puede
-    seguir moviendo la camara con el raton y con el teclado numerico.
-    """
+    
     p.resetDebugVisualizerCamera(CAM_DIST, CAM_YAW, CAM_PITCH, CAM_OBJETIVO)
 
 
