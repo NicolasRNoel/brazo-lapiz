@@ -1,0 +1,39 @@
+# Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Tests y herramientas -------------------------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Resultados generados -------------------------------------------------
+*.png
+*.ppm
+*.txt
+
+# ...pero requirements.txt SI es un archivo del proyecto, no una salida.
+!requirements.txt
+
+# El URDF se escribe solo en la carpeta temporal del sistema. Si alguien
+# lo cambia de sitio, aqui esta el patron por si acaso.
+brazo_lapiz_generado.urdf
+
+# Sistema y editores ----------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
