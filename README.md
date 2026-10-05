@@ -1,4 +1,4 @@
-# 🖊️ Brazo con lápiz que dibuja el dígito que teclees
+# 🖊️ Brazo con lápiz que dibuja el dígito ingresado
 
 Un brazo robótico simulado en **PyBullet** que escribe sobre un panel vertical
 el número que pulsas en un **teclado matricial 4×4** conectado a una **ESP32**.
