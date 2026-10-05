@@ -1,12 +1,6 @@
 # Nucleo: hace falta para arrancar
 pybullet>=3.2.7
 numpy>=1.24
-
-# Solo para hablar con una ESP32 de verdad por el puerto serie.
-# El script arranca igual sin pyserial: avisa de que no encontro la ESP32
-# y se queda escuchando el teclado de la PC.
 pyserial>=3.5
 
-# Para compilar y subir el firmware a la ESP32. No hace falta para la
-# simulacion, solo para el hardware.
 # PlatformIO >= 6.1
