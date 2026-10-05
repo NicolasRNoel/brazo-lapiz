@@ -5,8 +5,8 @@ el número que pulsas en un **teclado matricial 4×4** conectado a una **ESP32**
 La ESP32 manda la tecla por el puerto serie y el brazo la dibuja con un lápiz.
 
 Integrantes:
-Nicolas Robayo Gomez
-Camilo Molano
+Nicolas Robayo Gomez ;
+Camilo Molano ; 
 Jordan ALejandro Rodriguez
 
 
